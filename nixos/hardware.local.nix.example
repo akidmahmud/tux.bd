@@ -1,0 +1,16 @@
+# Machine-local hardware identifiers — NOT committed to git (listed in .gitignore).
+# Copy this file to hardware.local.nix and fill in the values.
+#
+# Find your UUIDs with:
+#   lsblk -o NAME,UUID,PARTUUID
+{ ... }:
+{
+  fileSystems."/boot" =
+    { device = "/dev/disk/by-uuid/XXXX-XXXX";  # EFI partition UUID
+      fsType = "vfat";
+      options = [ "fmask=0022" "dmask=0022" ];
+    };
+
+  swapDevices =
+    [ { device = "/dev/disk/by-uuid/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"; } ];
+}

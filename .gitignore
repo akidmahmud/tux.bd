@@ -1,0 +1,16 @@
+# Machine-local secrets and hardware identifiers — never commit these
+*.local.*
+!*.local.*.example
+
+# Secret env files
+*.env
+*.env.*
+!*.env.example
+
+# TLS certs and keys
+*.pem
+*.key
+*.json
+
+# Portainer / app databases
+*.db

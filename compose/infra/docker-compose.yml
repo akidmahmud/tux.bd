@@ -1,0 +1,114 @@
+# Infrastructure services — Traefik v3 reverse proxy + Portainer BE
+#
+# Traefik uses host networking for reliable HTTP/3 (QUIC) over UDP.
+# TLS certs via Let's Encrypt wildcard (*.tux.bd) using
+# Cloudflare DNS-01 challenge — valid everywhere, auto-renews.
+#
+# Secrets bootstrap (run once):
+#   sudo mkdir -p /persist/traefik
+#   echo "CF_DNS_API_TOKEN=<your-cloudflare-token>" | sudo tee /persist/traefik/secrets.env
+#   sudo chmod 600 /persist/traefik/secrets.env
+#   # Token needs Zone:DNS:Edit permission for tux.bd
+#   # Create at: https://dash.cloudflare.com/profile/api-tokens
+#
+# Hostnames (resolve via public DNS — certs are valid everywhere):
+#   https://proxy.tux.bd   — Traefik dashboard (Tailscale-only via firewall)
+#   https://admin.tux.bd — Portainer BE      (Tailscale-only via firewall)
+#
+# Adding a new service — add to any compose file with these labels:
+#   traefik.enable: "true"
+#   traefik.http.routers.<name>.rule: "Host(`<name>.tux.bd`)"
+#   traefik.http.routers.<name>.tls.certresolver: "letsencrypt"
+#   traefik.http.services.<name>.loadbalancer.server.port: "<port>"
+
+networks:
+  proxy:
+    name: proxy
+    driver: bridge
+
+services:
+
+  # ── Traefik v3 ──────────────────────────────────────────────────────────
+  traefik:
+    image: traefik:v3
+    container_name: traefik
+    restart: unless-stopped
+
+    # Host networking required for HTTP/3 (QUIC/UDP).
+    network_mode: host
+
+    env_file:
+      - /persist/traefik/secrets.env  # CF_DNS_API_TOKEN
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /persist/traefik/certs:/certs
+
+    command:
+      # ── Global ────────────────────────────────────────────────────────
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+
+      # ── API / Dashboard ───────────────────────────────────────────────
+      - --api.dashboard=true
+      - --api.insecure=false
+
+      # ── Logging ───────────────────────────────────────────────────────
+      - --log.level=INFO
+      - --accesslog=true
+
+      # ── Providers ─────────────────────────────────────────────────────
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+
+      # ── Entrypoints ───────────────────────────────────────────────────
+      # web (80): redirect all HTTP → HTTPS
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+
+      # websecure (443 TCP+UDP): HTTPS/1.1, HTTP/2, HTTP/3 (QUIC)
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http3=true
+      - --entrypoints.websecure.http3.advertisedport=443
+
+      # ── Certificate resolver: Let's Encrypt via Cloudflare DNS-01 ─────
+      # DNS-01 allows wildcard certs (*.tux.bd) and works without
+      # exposing port 80 to the internet. CF_DNS_API_TOKEN from env_file.
+      - --certificatesresolvers.letsencrypt.acme.email=audacioustux@gmail.com
+      - --certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.traefik-proxy.rule: "Host(`proxy.tux.bd`)"
+      traefik.http.routers.traefik-proxy.entrypoints: "websecure"
+      traefik.http.routers.traefik-proxy.tls.certresolver: "letsencrypt"
+      traefik.http.routers.traefik-proxy.service: "api@internal"
+      traefik.http.services.traefik-proxy.loadbalancer.server.port: "8080"
+
+  # ── Portainer BE ────────────────────────────────────────────────────────
+  portainer:
+    image: portainer/portainer-ee:sts
+    container_name: portainer
+    restart: unless-stopped
+    networks:
+      - proxy
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /persist/portainer:/data
+
+    expose:
+      - "9000"
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "proxy"
+      traefik.http.routers.portainer.rule: "Host(`admin.tux.bd`)"
+      traefik.http.routers.portainer.entrypoints: "websecure"
+      traefik.http.routers.portainer.tls.certresolver: "letsencrypt"
+      traefik.http.services.portainer.loadbalancer.server.port: "9000"

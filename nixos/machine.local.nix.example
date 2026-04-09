@@ -1,0 +1,9 @@
+# Machine-local secrets — NOT committed to git (listed in .gitignore).
+# Copy this file to machine.local.nix and fill in the values.
+#
+# Generate a new hash with:
+#   mkpasswd -m yescrypt
+{ ... }:
+{
+  users.users.audacioustux.hashedPassword = "replace-with-mkpasswd-output";
+}
